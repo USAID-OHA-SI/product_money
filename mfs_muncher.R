@@ -54,10 +54,10 @@ col3 <- read_xlsx(file,
 df_commod <- read_xlsx(file,
                        sheet = "TO1-COP",
                        skip = 33) %>%
+  rename(!!col1 := `...4`,
+         !!col2 := `...5`,
+         !!col3 := `...6`) %>%
   janitor::clean_names() %>%
-  rename(!!col1 := x4,
-         !!col2 := x5,
-         !!col3 := x6) %>% 
   select(-x2,-x3) %>%
   filter(if_any(everything(), ~!is.na(.x)),
          if_any(where(is.numeric), ~!is.na(.x)),
