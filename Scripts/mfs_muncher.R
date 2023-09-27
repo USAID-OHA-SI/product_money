@@ -50,15 +50,14 @@ mfs_muncher = function(file) {
   }
   
   ## get period
-  period <- read_xlsx(file,
-                      sheet = which(str_detect(excel_sheets(file), "TO1-COP"))[1],
-                      range = "D4") %>%
-    names()
+  period <- str_remove(file, here("Data", "/")) %>% 
+    str_remove(".xlsx") %>% 
+    str_extract("\\b\\w+ \\d{4}\\b")
   
-  ou <- read_xlsx(file,
-                  sheet = which(str_detect(excel_sheets(file), "TO1-Summary"))[1],
-                  range = "B1") %>%
-    names()
+  ou <- str_remove(file, here("Data", "/")) %>% 
+    str_remove(".xlsx") %>% 
+    str_remove("\\b\\w+ \\d{4}\\b") %>%
+    trimws()
   
   
   #need col headers
@@ -87,11 +86,11 @@ mfs_muncher = function(file) {
     filter(
       if_any(everything(), ~ !is.na(.x)),
       if_any(where(is.numeric), ~ !is.na(.x)),!commodities %in% c("Subtotal Commodities", "Grand Total")
-    ) %>%
-    rename(subcategory = commodities) %>%
+    ) %>% 
+    rename(subcategory = commodities) %>% 
     pivot_longer(
       cols = where(is.numeric),
-      names_to = "finacial_activity",
+      names_to = "financial_activity",
       values_to = "value",
       values_drop_na = TRUE
     ) %>%
@@ -122,7 +121,7 @@ mfs_muncher = function(file) {
     )) %>%
     pivot_longer(
       cols = where(is.double),
-      names_to = "finacial_activity",
+      names_to = "financial_activity",
       values_to = "value",
       values_drop_na = TRUE
     ) %>%
@@ -132,9 +131,7 @@ mfs_muncher = function(file) {
   df <- bind_rows(df_ta, df_commod) %>%
     mutate(
       country = ou,
-      period = paste0(period, " 01"),
-      country = stringr::str_extract(country, "\\ - .*"),
-      country = stringr::str_remove(country, "\\ -")
+      period = paste0(period, " 01")
     ) %>%
     mutate(period = as.Date(period, format = "%B %Y %d")) %>%
     relocate(country, .before = detail) %>%
@@ -142,25 +139,67 @@ mfs_muncher = function(file) {
     relocate(category, .before = detail) %>%
     relocate(subcategory, .before = detail)
   
+  df <- df %>%
+    dplyr::mutate(
+      smp = lubridate::quarter(
+        x = lubridate::ymd(period),
+        with_year = TRUE,
+        fiscal_start = 10
+      ),
+      fiscal_quarter = paste0("FY", substr(smp, 3, 4), "Q", substr(smp, 6, 6))
+    ) %>%
+    dplyr::select(-smp)
+  
   return(df)
 }
 
-#### Assemble File ============================================================================  
-
-# drive_auth()
-# year_folder = "1dk5gBttDvX4fl78vfbyfiqjXZabhwkAW"
-# files_in_folder <- googledrive::drive_ls(googledrive::as_id(year_folder))
-
-historical_mfrs <- tibble()
-
-for(name in list.files(here("Data"))){
-  historical_mfrs <- mfs_muncher(name) %>%
-    bind_rows(historical_mfrs, .)
+monthly_muncher <- function(folder){
+  
+  # Import files
+  filenames = list()
+  files_in_folder <- googledrive::drive_ls(googledrive::as_id(folder))
+  for(folder in files_in_folder$id){
+    files_in_subfolder <- googledrive::drive_ls(googledrive::as_id(folder))
+    for(name in files_in_subfolder$name){
+      glamr::import_drivefile(drive_folder = folder,
+                              filename = name,
+                              folderpath = here("Data"),
+                              zip = FALSE)
+      filenames <- append(filenames, name)
+    }
+  }
+  
+  df <- filenames %>%
+    map_dfr( ~ read_excel(here("Data", .x)) %>%
+               mfs_muncher())
+  
+  return(df)
 }
 
-#write_csv(historical_mfrs, here("Dataout", "historical_mfrs.csv"))
+#### Assemble Historical File ============================================================================  
 
-# Checking for tables that didn't get read in because of the TO1-COP tab issue
+# Download Files to here("Data")
+drive_auth()
+year_folder = "1dk5gBttDvX4fl78vfbyfiqjXZabhwkAW"
+files_in_folder <- googledrive::drive_ls(googledrive::as_id(year_folder))
+for(folder in files_in_folder$id){
+  files_in_subfolder <- googledrive::drive_ls(googledrive::as_id(folder))
+  for(name in files_in_subfolder$name){
+    glamr::import_drivefile(drive_folder = folder,
+                            filename = name,
+                            folderpath = here("Data"),
+                            zip = FALSE)
+  }
+}
+
+# Map to files to mfs_muncher()
+historical_mfrs <- list.files(here("Data")) %>%
+  map_dfr(~ mfs_muncher(.x))
+
+historical_mfrs %>%
+  write_csv(here("Dataout", "fy23_mfrs.csv"))
+
+# Check for tables that didn't get read in because of the TO1-COP tab issue
 tables_exist = historical_mfrs %>%
   distinct(country, period) %>%
   mutate(country = trimws(country)) %>%
@@ -176,13 +215,17 @@ tables_total = list.files(here("Data")) %>%
   mutate(period = paste0(period, " 01"),
          period = as.Date(period, "%B %Y %d"))
 
-tables_total %>%
+no_to1_cop <- tables_total %>%
   left_join(tables_exist) %>%
-  filter(is.na(matches)) %>%
+  filter(is.na(matches)) 
+
+no_to1_cop %>%
   write_csv(here("Dataout", "no_to1_cop.csv"))
 
-# Many OUs don't have a TO1-COP table
-# There are two Liberia November 2022 sheets
-# Rwanda May 2023 TO1-Summary starts a line lower
-# Sheets throughout have tabs that include a space after the name
-# 
+# Issues with the tables so far:
+# - Many OUs don't have a TO1-COP table
+# - There are two Liberia November 2022 sheets
+# - Rwanda May 2023 TO1-Summary starts a line lower
+# - Sheets throughout have tabs that include a space after the name
+# - In a few tables Malawi lab commodities are recorded as "."
+
