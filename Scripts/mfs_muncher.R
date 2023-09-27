@@ -156,22 +156,16 @@ mfs_muncher = function(file) {
 monthly_muncher <- function(folder){
   
   # Import files
-  filenames = list()
   files_in_folder <- googledrive::drive_ls(googledrive::as_id(folder))
-  for(folder in files_in_folder$id){
-    files_in_subfolder <- googledrive::drive_ls(googledrive::as_id(folder))
-    for(name in files_in_subfolder$name){
-      glamr::import_drivefile(drive_folder = folder,
-                              filename = name,
-                              folderpath = here("Data"),
-                              zip = FALSE)
-      filenames <- append(filenames, name)
-    }
+  for(name in files_in_folder$name){
+    glamr::import_drivefile(drive_folder = folder,
+                             filename = name,
+                             folderpath = here("Data"),
+                             zip = FALSE)
   }
   
-  df <- filenames %>%
-    map_dfr( ~ read_excel(here("Data", .x)) %>%
-               mfs_muncher())
+  df <- files_in_folder$name %>%
+    map_dfr(~ mfs_muncher(.))
   
   return(df)
 }
