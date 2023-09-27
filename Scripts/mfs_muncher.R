@@ -17,9 +17,9 @@ require(readxl)
 
 #### FUNCTION ============================================================================  
 
-mfs_muncher = function(file) {
+mfs_muncher = function(file, path = here::here("Data")) {
   
-  file <- here("Data", file)
+  file <- paste0(path, "/", file)
   
   ta <-  c(
     "Strategy and Planning TA",
@@ -50,11 +50,11 @@ mfs_muncher = function(file) {
   }
   
   ## get period
-  period <- str_remove(file, here("Data", "/")) %>% 
+  period <- str_remove(file, paste0(path, "/")) %>% 
     str_remove(".xlsx") %>% 
     str_extract("\\b\\w+ \\d{4}\\b")
   
-  ou <- str_remove(file, here("Data", "/")) %>% 
+  ou <- str_remove(file, paste0(path, "/")) %>% 
     str_remove(".xlsx") %>% 
     str_remove("\\b\\w+ \\d{4}\\b") %>%
     trimws()
@@ -153,19 +153,19 @@ mfs_muncher = function(file) {
   return(df)
 }
 
-monthly_muncher <- function(folder){
+monthly_muncher <- function(folder, path = here::here("Data")){
   
   # Import files
   files_in_folder <- googledrive::drive_ls(googledrive::as_id(folder))
   for(name in files_in_folder$name){
     glamr::import_drivefile(drive_folder = folder,
                              filename = name,
-                             folderpath = here("Data"),
+                             folderpath = path,
                              zip = FALSE)
   }
   
   df <- files_in_folder$name %>%
-    map_dfr(~ mfs_muncher(.))
+    map_dfr(~ mfs_muncher(., path = path))
   
   return(df)
 }
